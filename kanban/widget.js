@@ -16,8 +16,12 @@ let TABLE_KANBAN;
 let COLONNES_MAP;
 let PERSONNES;
 let PERSONNES_RAW;
+let REF_PROJET;
+let REF_PROJET_RAW;
 let TYPES;
 let TYPES_RAW;
+let ROTATE_CARTE = true;
+let CARTE_COMPACT = false;
 
   // ========== FONCTIONS UTILITAIRES ==========
   /* Gestion du repli/dépli des colonnes */
@@ -104,10 +108,15 @@ let TYPES_RAW;
   /* Création d'une carte TODO */
   function creerCarteTodo(todo) {
     const carte = document.createElement('div');
-    carte.className = 'carte';
+    carte.className =`carte ${ROTATE_CARTE ? '': ' norotate'}${CARTE_COMPACT ? ' compact': ''}`;// ROTATE_CARTE ? 'carte': 'carte norotate';
+    
     carte.setAttribute('data-todo-id', todo.id);
     carte.setAttribute('data-last-update', todo[COLONNES_MAP.DERNIERE_MISE_A_JOUR] || '');
-  
+    carte.setAttribute('data-deadline', todo[COLONNES_MAP.DEADLINE] || '');
+    if (COLONNES_MAP.COULEUR && todo[COLONNES_MAP.COULEUR]) {
+      carte.setAttribute('style', `background-color: ${(todo[COLONNES_MAP.COULEUR].startsWith("#")? '': '#') + todo[COLONNES_MAP.COULEUR]}`);
+    }
+
     const type = todo[COLONNES_MAP.TYPE] || '';
     const description = todo[COLONNES_MAP.DESCRIPTION] || 'Sans titre';
     const deadline = todo[COLONNES_MAP.DEADLINE] ? formatDate(todo[COLONNES_MAP.DEADLINE]) : '';
@@ -116,12 +125,12 @@ let TYPES_RAW;
     const infoColonne = COLONNES_AFFICHAGE.find((colonne) => {return colonne.id === todo[COLONNES_MAP.STATUT]});
 
     carte.innerHTML = `
-      ${projetRef && projetRef !== 0 ? `<div class="projet-ref">#${projetRef}</div>` : ''}
-      ${type ? `<div class="type-tag">${type}</div>` : ''}
+      ${projetRef && projetRef.length > 0 ? `<div class="projet-ref">#${projetRef}</div>` : ''}
+      ${type ? `<div class="type-tag">${type}</div>` : (projetRef && projetRef.length > 0 ? '<div>&nbsp;</div>':'')}
       <div class="description">${description}</div>
-      ${deadline ? `<div class="deadline">📅 ${deadline}</div>` : ''}
+      ${deadline ? `<div class="deadline${todo[COLONNES_MAP.DEADLINE] <= Date.now() ? ' late':''}">📅 ${deadline}</div>` : (responsable ? '<div>&nbsp;</div>':'')}
       ${responsable ? `<div class="responsable-badge">${responsable}</div>` : ''}
-      ${infoColonne.isdone ? `<div class="tampon-termine">${todo[COLONNES_MAP.STATUT]}</div>` : ''}      
+      ${infoColonne?.isdone ? `<div class="tampon-termine" style="color: ${infoColonne?.couleur};">${todo[COLONNES_MAP.STATUT]}</div>` : ''}      
     `;
   
     carte.addEventListener('click', () => togglePopupTodo(todo));
@@ -141,10 +150,13 @@ let TYPES_RAW;
     colonneElement.innerHTML = `
       <div class="entete-colonne" style="background-color: ${colonne.couleur}">
         <div class="titre-statut">${colonne.libelle} <span class="compteur-colonne">(0)</span></div>
+        ${(colonne.btajout && TABLE_KANBAN !== "-") ? `
+          <button class="bouton-ajouter-entete ${CARTE_COMPACT ? ' compact': ''}" onclick="creerNouvelleTache('${colonne.id}')">+</button>
+        ` : ''}
         <button class="bouton-toggle" onclick="toggleColonne(this.closest('.colonne-kanban'), event)">⇄</button>
       </div>
       ${(colonne.btajout && TABLE_KANBAN !== "-") ? `
-        <button class="bouton-ajouter" onclick="creerNouvelleTache('${colonne.id}')">+ Ajouter une tâche</button>
+        <button class="bouton-ajouter ${CARTE_COMPACT ? ' compact': ''}" onclick="creerNouvelleTache('${colonne.id}')">+ Ajouter une tâche</button>
       ` : ''}
       <div class="contenu-colonne" data-statut="${colonne.id}"></div>
     `;
@@ -174,8 +186,8 @@ let TYPES_RAW;
         return new Date(dateB) - new Date(dateA); // Plus récent en premier
       } else {
         // Pour les autres colonnes, tri par deadline
-        const dateA = a.querySelector('.deadline')?.textContent?.replace('📅 ', '') || '9999-12-31';
-        const dateB = b.querySelector('.deadline')?.textContent?.replace('📅 ', '') || '9999-12-31';
+        const dateA = a.getAttribute('data-deadline') || '9999-12-31';
+        const dateB = b.getAttribute('data-deadline') || '9999-12-31';
         return new Date(dateA) - new Date(dateB); // Plus urgent en premier
       }
     });
@@ -192,7 +204,7 @@ let TYPES_RAW;
     const carteCliquee = document.querySelector(`[data-todo-id="${todo.id}"]`);
     const infoColonne = COLONNES_AFFICHAGE.find((colonne) => {return colonne.id === todo[COLONNES_MAP.STATUT]});
     
-    if (TABLE_KANBAN === "-" || popup.classList.contains('visible') && currentId === todo.id.toString()) {
+    if (TABLE_KANBAN === "-") { //|| popup.classList.contains('visible') && currentId === todo.id.toString()) {
       fermerPopup();
       return;
     }
@@ -218,14 +230,29 @@ let TYPES_RAW;
     
     popupTitle.textContent = todo[COLONNES_MAP.DESCRIPTION] || 'Nouvelle tâche';
     
-    let form = "";
-    form = `
-      <div class="field-row">
-        <div class="field">
-          <label class="field-label">Référence Projet</label>
-          <input type="text" class="field-input" value="${todo[COLONNES_MAP.REFERENCE_PROJET] || ''}" 
-                 onchange="mettreAJourChamp(${todo.id}, '${[COLONNES_MAP.REFERENCE_PROJET]}', this.value, event)">
-        </div>
+    let form = '<div class="field-row">';
+    if (REF_PROJET?.length > 0) {
+      form += `
+          <div class="field">
+            <label class="field-label">Référence Projet</label>
+            <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.REFERENCE_PROJET}', this.value, event)">`;
+      REF_PROJET.forEach(element => {
+        form += `<option value="${element}" ${todo[COLONNES_MAP.REFERENCE_PROJET] === element ? 'selected' : ''}>${element}</option>`;  
+      });
+      form += `</select>
+          </div>        
+      `;
+    } else {
+      form += `
+          <div class="field">
+            <label class="field-label">Référence Projet</label>
+            <input type="text" class="field-input" value="${todo[COLONNES_MAP.REFERENCE_PROJET] || ''}" 
+                  onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.REFERENCE_PROJET}', this.value, event)">
+          </div>
+        `;
+    }  
+
+    form += `
         <div class="field">
           <label class="field-label">Date limite</label>
           <input type="date" class="field-input" 
@@ -237,29 +264,49 @@ let TYPES_RAW;
       <div class="field-row">
     `;
     
-    if (COLONNES_MAP.TYPE && TYPES?.length > 0) {
-      form += `
-          <div class="field">
-            <label class="field-label">Type</label>
-            <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.TYPE}', this.value, event)">`;
-      TYPES.forEach(element => {
-        form += `<option value="${element}" ${todo[COLONNES_MAP.TYPE] === element ? 'selected' : ''}>${element}</option>`;  
-      });
-      form += `</select>
-          </div>        
-      `;
+    if (COLONNES_MAP.TYPE) {
+      if (TYPES?.length > 0) {
+        form += `
+            <div class="field">
+              <label class="field-label">Type</label>
+              <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.TYPE}', this.value, event)">`;
+        TYPES.forEach(element => {
+          form += `<option value="${element}" ${todo[COLONNES_MAP.TYPE] === element ? 'selected' : ''}>${element}</option>`;  
+        });
+        form += `</select>
+            </div>        
+        `;
+      } else {
+        form += `
+            <div class="field">
+              <label class="field-label">Type</label>
+              <input type="text" class="field-input" value="${todo[COLONNES_MAP.TYPE] || ''}" 
+                    onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.TYPE}', this.value, event)">
+            </div>
+        `;
+      }      
     }
-    if (COLONNES_MAP.RESPONSABLE && PERSONNES?.length > 0) {
-      form += `
-          <div class="field">
-            <label class="field-label">Responsable</label>
-            <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.RESPONSABLE}', this.value, event)">`;
-      PERSONNES.forEach(element => {
-        form += `<option value="${element}" ${todo[COLONNES_MAP.RESPONSABLE] === element ? 'selected' : ''}>${element}</option>`;  
-      });
-      form += `</select>
-          </div>        
-      `;
+    if (COLONNES_MAP.RESPONSABLE) {
+      if (PERSONNES?.length > 0) {
+        form += `
+            <div class="field">
+              <label class="field-label">Responsable</label>
+              <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.RESPONSABLE}', this.value, event)">`;
+        PERSONNES.forEach(element => {
+          form += `<option value="${element}" ${todo[COLONNES_MAP.RESPONSABLE] === element ? 'selected' : ''}>${element}</option>`;  
+        });
+        form += `</select>
+            </div>        
+        `;
+      } else {
+        form += `
+            <div class="field">
+              <label class="field-label">Responsable</label>
+              <input type="text" class="field-input" value="${todo[COLONNES_MAP.RESPONSABLE] || ''}" 
+                    onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.RESPONSABLE}', this.value, event)">
+            </div>
+        `;
+      }      
     }
     form += `
       </div>
@@ -363,7 +410,7 @@ let TYPES_RAW;
   function afficherKanban(todos) {
     const conteneurKanban = document.getElementById('conteneur-kanban');
     conteneurKanban.innerHTML = '';
-  
+    
     // Création des colonnes
     COLONNES_AFFICHAGE.forEach(colonneConfig => {
       const colonne = creerColonneKanban(colonneConfig);
@@ -391,6 +438,7 @@ let TYPES_RAW;
             onEnd: async function(evt) {
               const todoId = evt.item.dataset.todoId;
               const colonneArrivee = evt.to.dataset.statut;
+              
               try {
                 await mettreAJourChamp(todoId, COLONNES_MAP.STATUT, colonneArrivee);
               } catch (erreur) {
@@ -429,10 +477,22 @@ let TYPES_RAW;
         });
       });
 
-      document.getElementById('liste-colonnes').value = JSON.stringify(COLONNES_AFFICHAGE);
+      document.getElementById('liste-colonnes').value = JSON.stringify(COLONNES_AFFICHAGE, null, 2);
 
+      document.getElementById('liste-ref').value = REF_PROJET_RAW;
       document.getElementById('liste-personnes').value = PERSONNES_RAW;
       document.getElementById('liste-types').value = TYPES_RAW;
+
+      document.getElementById('card-rotation').checked = ROTATE_CARTE;
+      document.getElementById('card-compact').checked = CARTE_COMPACT;
+
+      setTimeout(() => {
+        const textareas = document.querySelectorAll('.auto-expand');
+        textareas.forEach(textarea => {
+          textarea.style.height = '';
+          textarea.style.height = textarea.scrollHeight + 'px';
+        });
+      }, 0);
 
     } else {
       popup.classList.remove('visible');
@@ -460,6 +520,10 @@ let TYPES_RAW;
       
       grist.widgetApi.setOption('colonnes', COLONNES_AFFICHAGE);
 
+      REF_PROJET_RAW = document.getElementById('liste-ref').value;
+      grist.widgetApi.setOption('ref', REF_PROJET_RAW);
+      REF_PROJET = await getLookUpData(REF_PROJET_RAW);
+
       PERSONNES_RAW = document.getElementById('liste-personnes').value;
       grist.widgetApi.setOption('personnes', PERSONNES_RAW);
       PERSONNES = await getLookUpData(PERSONNES_RAW);
@@ -467,6 +531,12 @@ let TYPES_RAW;
       TYPES_RAW = document.getElementById('liste-types').value;
       grist.widgetApi.setOption('types', TYPES_RAW);
       TYPES = await getLookUpData(TYPES_RAW);      
+
+      ROTATE_CARTE = document.getElementById('card-rotation').checked;
+      grist.widgetApi.setOption('rotation', ROTATE_CARTE);
+
+      CARTE_COMPACT = document.getElementById('card-compact').checked;
+      grist.widgetApi.setOption('compact', CARTE_COMPACT);
     } catch (erreur) {console.error('Erreur sauvegarde des options:', erreur);}
   }
 
@@ -484,7 +554,7 @@ let TYPES_RAW;
         let records = await grist.docApi.fetchTable(data[0]);
         let colonne = Object.keys(records || {}).filter(k => k !== 'id' && k !== 'manualSort');          
         if (colonne.length > 0)
-          return [""].concat(records[colonne[0]].filter(item => item.length > 0));
+          return [""].concat(records[colonne[0]].filter(item => item.length > 0).sort());
         else
           return [];
       } else if (data.length > 1) {
@@ -492,14 +562,14 @@ let TYPES_RAW;
         let records = await grist.docApi.fetchTable(data[0]);
         records = records[data[1]];
         if (records)
-          return [""].concat(records.filter(item => item.length > 0));
+          return [""].concat(records.filter(item => item.length > 0).sort());
         else
           return [];
       } else {
         return [target];
       }
     } else {
-      return target.split(";");
+      return [""].concat(target.split(";").filter(item => item.length > 0).sort());
     }    
   }
 
@@ -518,7 +588,8 @@ let TYPES_RAW;
       {name:'RESPONSABLE', title:'Tâche assignée à', type:'Any', optional:true}, 
       {name:'CREE_PAR', title:'Tâche créée par', type:'Any', optional:true}, 
       {name:'CREE_LE', title:'Tâche créée le', type:'DateTime', optional:true}, 
-      {name:'DERNIERE_MISE_A_JOUR', title:'Mis à jour le', type:'DateTime', optional:true}
+      {name:'DERNIERE_MISE_A_JOUR', title:'Mis à jour le', type:'DateTime', optional:true},
+      {name:'COULEUR', title:'Couleur carte', type:'Any', optional:true}
     ],
     onEditOptions() {
       ShowConfig(true);
@@ -527,15 +598,37 @@ let TYPES_RAW;
 
   /* Chargement des options du widget */
   grist.onOptions(async function(customOptions, _) {
-    customOptions = customOptions || {};
+    customOptions = customOptions || {};    
 
     TABLE_KANBAN = customOptions.table || "-";
     COLONNES_AFFICHAGE = customOptions.colonnes || COLONNES_AFFICHAGE_DEFAUT;
 
+    REF_PROJET_RAW = customOptions.ref || '';
+    REF_PROJET = await getLookUpData(REF_PROJET_RAW);
     PERSONNES_RAW = customOptions.personnes || '';
     PERSONNES = await getLookUpData(PERSONNES_RAW);
     TYPES_RAW = customOptions.types  || '';
     TYPES = await getLookUpData(TYPES_RAW);
+
+    ROTATE_CARTE = (customOptions.rotation === undefined) ? true: customOptions.rotation;
+    CARTE_COMPACT = (customOptions.compact === undefined) ? false: customOptions.compact;
+
+    const cartes = document.querySelectorAll('.carte');
+    
+    if (ROTATE_CARTE)
+      cartes.forEach(carte => {carte.classList.remove('norotate')});
+    else
+      cartes.forEach(carte => {carte.classList.add('norotate')});
+
+    if (CARTE_COMPACT) {
+      cartes.forEach(carte => {carte.classList.add('compact')});
+      document.querySelectorAll('.bouton-ajouter-entete').forEach(carte => {carte.classList.add('compact')});
+      document.querySelectorAll('.bouton-ajouter').forEach(carte => {carte.classList.add('compact')});
+    } else {
+      cartes.forEach(carte => {carte.classList.remove('compact')});
+      document.querySelectorAll('.bouton-ajouter-entete').forEach(carte => {carte.classList.remove('compact')});
+      document.querySelectorAll('.bouton-ajouter').forEach(carte => {carte.classList.remove('compact')});
+    }
 
     ShowConfig(false);
   });
