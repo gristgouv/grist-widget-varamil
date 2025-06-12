@@ -3,16 +3,21 @@
    Vous pouvez modifier ces paramètres selon vos besoins :
    - id : identifiant unique de la colonne (conservez les émojis)
    - libelle : texte affiché en haut de la colonne
-   - classe : nom CSS utilisé pour le style (doit correspondre au CSS)
+   - couleur : couleur (au format html) de la colonne
+   - btajout : vrai si la colonne doit avoir un bouton d'ajout
+   - isdone : vrai si la colonne est considérée comme une colonne d'actions terminées
+   - useconfetti : vrai si les confetti doivent être affichés quand une carte arrive dans la colonne
 */
 const COLONNES_AFFICHAGE_DEFAUT = [
-    { id: '🖐️ À faire', libelle: 'À faire', classe: 'a-faire', couleur: '#f95c5e', btajout: true, isdone: false, useconfetti: false },
-    { id: '♻️ En cours', libelle: 'En cours', classe: 'en-cours', couleur: '#417DC4', btajout: false, isdone: false, useconfetti: false },
-    { id: '✅ Fait', libelle: 'Fait', classe: 'fait', couleur: '#27a658', btajout: false, isdone: true, useconfetti: true },
-    { id: '❌ Annulé', libelle: 'Annulé', classe: 'annule', couleur: '#301717', btajout: false, isdone: true, useconfetti: false }
+    { id: '🖐️ À faire', libelle: 'À faire', couleur: '#f95c5e', btajout: true, isdone: false, useconfetti: false },
+    { id: '♻️ En cours', libelle: 'En cours', couleur: '#417DC4', btajout: false, isdone: false, useconfetti: false },
+    { id: '✅ Fait', libelle: 'Fait', couleur: '#27a658', btajout: false, isdone: true, useconfetti: true },
+    { id: '❌ Annulé', libelle: 'Annulé', couleur: '#301717', btajout: false, isdone: true, useconfetti: false }
   ];
+const DEADLINE_PRIORITE = new Date('3000-01-01');
+
 let COLONNES_AFFICHAGE;
-let TABLE_KANBAN;
+const TABLE_KANBAN = grist.getTable();
 let COLONNES_MAP;
 let PERSONNES;
 let PERSONNES_RAW;
@@ -22,6 +27,7 @@ let TYPES;
 let TYPES_RAW;
 let ROTATE_CARTE = true;
 let CARTE_COMPACT = false;
+let READ_ONLY = false;
 
   // ========== FONCTIONS UTILITAIRES ==========
   /* Gestion du repli/dépli des colonnes */
@@ -73,9 +79,7 @@ let CARTE_COMPACT = false;
       }
       let data = {[champ]: valeur};
       if (COLONNES_MAP.DERNIERE_MISE_A_JOUR) data[COLONNES_MAP.DERNIERE_MISE_A_JOUR] = new Date().toISOString();
-      await grist.docApi.applyUserActions([
-        ['UpdateRecord', TABLE_KANBAN, parseInt(todoId), data]
-      ]);
+      await TABLE_KANBAN.update({id: parseInt(todoId), fields: data});
     } catch (erreur) {
       console.error('Erreur mise à jour:', erreur);
     }
@@ -85,19 +89,24 @@ let CARTE_COMPACT = false;
   function formatDate(dateStr) {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
+    if (date >= DEADLINE_PRIORITE) return null;
+
     const day = date.getDate().toString().padStart(2, '0');
     const month = date.toLocaleDateString('fr-FR', { month: 'short' });
     const year = date.getFullYear();
-    return `${day} ${month} ${year}`;
+     return `${day} ${month} ${year}`;
   }
   
   /* Formatage des dates pour les champs input */
   function formatDateForInput(dateStr) {
     if (!dateStr) return '';
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+    //if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
     try {
       const date = new Date(dateStr);
-      return date.toISOString().split('T')[0];
+      if (date >= DEADLINE_PRIORITE)
+        return '';
+      else 
+        return date.toISOString().split('T')[0];
     } catch (e) {
       console.error('Erreur de formatage de date:', e);
       return '';
@@ -125,11 +134,11 @@ let CARTE_COMPACT = false;
     const infoColonne = COLONNES_AFFICHAGE.find((colonne) => {return colonne.id === todo[COLONNES_MAP.STATUT]});
 
     carte.innerHTML = `
-      ${projetRef && projetRef.length > 0 ? `<div class="projet-ref">#${projetRef}</div>` : ''}
-      ${type ? `<div class="type-tag">${type}</div>` : (projetRef && projetRef.length > 0 ? '<div>&nbsp;</div>':'')}
+      ${projetRef && projetRef.length > 0 ? `<div class="projet-ref truncate">#${projetRef}</div>` : ''}
+      ${type ? `<div class="type-tag truncate">${type}</div>` : (projetRef && projetRef.length > 0 ? '<div>&nbsp;</div>':'')}
       <div class="description">${description}</div>
-      ${deadline ? `<div class="deadline${todo[COLONNES_MAP.DEADLINE] <= Date.now() ? ' late':''}">📅 ${deadline}</div>` : (responsable ? '<div>&nbsp;</div>':'')}
-      ${responsable ? `<div class="responsable-badge">${responsable}</div>` : ''}
+      ${deadline ? `<div class="deadline${todo[COLONNES_MAP.DEADLINE] < Date.now() ? ' late':''} truncate">📅 ${deadline}</div>` : (responsable ? '<div>&nbsp;</div>':'')}
+      ${responsable ? `<div class="responsable-badge truncate">${responsable}</div>` : ''}
       ${infoColonne?.isdone ? `<div class="tampon-termine" style="color: ${infoColonne?.couleur};">${todo[COLONNES_MAP.STATUT]}</div>` : ''}      
     `;
   
@@ -150,12 +159,12 @@ let CARTE_COMPACT = false;
     colonneElement.innerHTML = `
       <div class="entete-colonne" style="background-color: ${colonne.couleur}">
         <div class="titre-statut">${colonne.libelle} <span class="compteur-colonne">(0)</span></div>
-        ${(colonne.btajout && TABLE_KANBAN !== "-") ? `
+        ${(colonne.btajout && !READ_ONLY) ? `
           <button class="bouton-ajouter-entete ${CARTE_COMPACT ? ' compact': ''}" onclick="creerNouvelleTache('${colonne.id}')">+</button>
         ` : ''}
         <button class="bouton-toggle" onclick="toggleColonne(this.closest('.colonne-kanban'), event)">⇄</button>
       </div>
-      ${(colonne.btajout && TABLE_KANBAN !== "-") ? `
+      ${(colonne.btajout && !READ_ONLY) ? `
         <button class="bouton-ajouter ${CARTE_COMPACT ? ' compact': ''}" onclick="creerNouvelleTache('${colonne.id}')">+ Ajouter une tâche</button>
       ` : ''}
       <div class="contenu-colonne" data-statut="${colonne.id}"></div>
@@ -183,12 +192,26 @@ let CARTE_COMPACT = false;
         // Pour les colonnes Fait et Annulé, tri par date de dernière mise à jour
         const dateA = a.getAttribute('data-last-update') || '1970-01-01';
         const dateB = b.getAttribute('data-last-update') || '1970-01-01';
-        return new Date(dateB) - new Date(dateA); // Plus récent en premier
+        const delta = new Date(dateB) - new Date(dateA);
+        if (delta === 0) {
+          const idA = parseInt(a.getAttribute('data-todo-id')) || 0;
+          const idB = parseInt(b.getAttribute('data-todo-id')) || 0;
+          return idB - idA;
+        }
+        else 
+          return delta; // Plus récent en premier
       } else {
         // Pour les autres colonnes, tri par deadline
         const dateA = a.getAttribute('data-deadline') || '9999-12-31';
         const dateB = b.getAttribute('data-deadline') || '9999-12-31';
-        return new Date(dateA) - new Date(dateB); // Plus urgent en premier
+        const delta = new Date(dateA) - new Date(dateB);
+        if (delta === 0) {
+          const idA = parseInt(a.getAttribute('data-todo-id')) || 0;
+          const idB = parseInt(b.getAttribute('data-todo-id')) || 0;
+          return idB - idA;
+        }
+        else 
+          return delta; // Plus urgent en premier
       }
     });
     
@@ -204,7 +227,7 @@ let CARTE_COMPACT = false;
     const carteCliquee = document.querySelector(`[data-todo-id="${todo.id}"]`);
     const infoColonne = COLONNES_AFFICHAGE.find((colonne) => {return colonne.id === todo[COLONNES_MAP.STATUT]});
     
-    if (TABLE_KANBAN === "-") { //|| popup.classList.contains('visible') && currentId === todo.id.toString()) {
+    if (READ_ONLY) { //|| popup.classList.contains('visible') && currentId === todo.id.toString()) {
       fermerPopup();
       return;
     }
@@ -335,7 +358,7 @@ let CARTE_COMPACT = false;
       `;
     }    
 
-    if (TABLE_KANBAN !== "-") {
+    if (!READ_ONLY) {
       form += ` 
         <div class="popup-actions">
           <button class="popup-action-button bouton-supprimer" onclick="supprimerTodo(${todo.id}, event)" 
@@ -378,11 +401,10 @@ let CARTE_COMPACT = false;
       if (COLONNES_MAP.DERNIERE_MISE_A_JOUR) data[COLONNES_MAP.DERNIERE_MISE_A_JOUR] = new Date().toISOString();
       if (COLONNES_MAP.CREE_LE) data[COLONNES_MAP.CREE_LE] = new Date().toISOString();
 
-      const res = await grist.docApi.applyUserActions([
-        ['AddRecord', TABLE_KANBAN, null, data]
-      ]);
-      if (res.retValues && res.retValues.length > 0) {
-        const rec = await grist.fetchSelectedRecord(res.retValues[0]);
+      const res = await TABLE_KANBAN.create({fields: data});
+      //if (res.retValues && res.retValues.length > 0) {
+      if (res.id && res.id > 0) {
+        const rec = await grist.fetchSelectedRecord(res.id); //res.retValues[0]);
         togglePopupTodo(rec);
       }
     } catch (erreur) {
@@ -395,9 +417,7 @@ let CARTE_COMPACT = false;
     e?.stopPropagation();
     if (confirm('Êtes-vous sûr de vouloir supprimer cette tâche ?')) {
       try {
-        await grist.docApi.applyUserActions([
-          ['RemoveRecord', TABLE_KANBAN, parseInt(todoId)]
-        ]);
+        await TABLE_KANBAN.destroy(parseInt(todoId));
         fermerPopup();
       } catch (erreur) {
         console.error('Erreur suppression:', erreur);
@@ -429,21 +449,53 @@ let CARTE_COMPACT = false;
       });
   
       // Configuration du drag & drop et mise à jour des compteurs
-      if(TABLE_KANBAN !== "-") {
+      if(!READ_ONLY) {
         document.querySelectorAll('.contenu-colonne').forEach(colonne => {
           // Configuration de Sortable pour le drag & drop
           new Sortable(colonne, {
             group: 'kanban-todo',
             animation: 150,
             onEnd: async function(evt) {
-              const todoId = evt.item.dataset.todoId;
               const colonneArrivee = evt.to.dataset.statut;
+              // Déplacé dans la même colonne
+              if (colonneArrivee === evt.from.dataset.statut) {
+                let deadline = evt.item.dataset.deadline || '9999-12-31';
+
+                if (evt.oldIndex !== evt.newIndex && (new Date(deadline)) >= DEADLINE_PRIORITE) {
+                  let start = DEADLINE_PRIORITE.getFullYear();              
+                  let data = [];
+                  document.querySelectorAll('.contenu-colonne').forEach(colonne => { 
+                    if (colonne.getAttribute('data-statut') === colonneArrivee) {
+                      colonne.querySelectorAll('.carte').forEach(async carte => { 
+                        deadline = carte.getAttribute('data-deadline') || '9999-12-31';
+                        if ((new Date(deadline)) >= DEADLINE_PRIORITE) {
+                          deadline = `${start}-01-01`;
+                          carte.setAttribute('data-deadline', deadline);
+                          start += 1;
+                       
+                          data.push({id: parseInt(carte.getAttribute('data-todo-id')), fields: {[COLONNES_MAP.DEADLINE]: deadline}})
+                        }
+                      });
+                    }
+                  }); 
+                  
+                  try {
+                    //await grist.docApi.applyUserActions(data);
+                    await TABLE_KANBAN.update(data);
+                  } catch (erreur) {
+                    console.error('Erreur mise à jour statut:', erreur);
+                  }
+                }                
+              } else {
+                try {
+                  await mettreAJourChamp(evt.item.dataset.todoId, COLONNES_MAP.STATUT, colonneArrivee);
+                } catch (erreur) {
+                  console.error('Erreur mise à jour statut:', erreur);
+                }
+              } 
               
-              try {
-                await mettreAJourChamp(todoId, COLONNES_MAP.STATUT, colonneArrivee);
-              } catch (erreur) {
-                console.error('Erreur mise à jour statut:', erreur);
-              }
+              // Tri des cartes dans chaque colonne
+              trierTodo(colonne);
             }
           });
     
@@ -469,14 +521,6 @@ let CARTE_COMPACT = false;
       kanban.classList.remove('visible');
       config.classList.add('visible');
 
-      const liste_table = document.getElementById('liste-table');
-      grist.docApi.listTables().then(tables => {
-        liste_table.innerHTML = '<option value="">-</option>';
-        tables.forEach(element => {
-          liste_table.innerHTML += `<option value="${element}" ${element === TABLE_KANBAN ? 'selected' : ''}>${element}</option>`;
-        });
-      });
-
       document.getElementById('liste-colonnes').value = JSON.stringify(COLONNES_AFFICHAGE, null, 2);
 
       document.getElementById('liste-ref').value = REF_PROJET_RAW;
@@ -485,6 +529,7 @@ let CARTE_COMPACT = false;
 
       document.getElementById('card-rotation').checked = ROTATE_CARTE;
       document.getElementById('card-compact').checked = CARTE_COMPACT;
+      document.getElementById('is-readonly').checked = READ_ONLY;
 
       setTimeout(() => {
         const textareas = document.querySelectorAll('.auto-expand');
@@ -508,10 +553,7 @@ let CARTE_COMPACT = false;
 
   /* Sauvegarde des options du widget */
   async function saveOption() {
-    try {
-      TABLE_KANBAN = document.getElementById("liste-table").value;
-      grist.widgetApi.setOption('table', TABLE_KANBAN);
-      
+    try {   
       const colonnes = document.getElementById("liste-colonnes").value;
       if (!colonnes || colonnes.trim().length === 0) 
         COLONNES_AFFICHAGE = COLONNES_AFFICHAGE_DEFAUT;
@@ -537,6 +579,9 @@ let CARTE_COMPACT = false;
 
       CARTE_COMPACT = document.getElementById('card-compact').checked;
       grist.widgetApi.setOption('compact', CARTE_COMPACT);
+
+      READ_ONLY = document.getElementById('is-readonly').checked;
+      grist.widgetApi.setOption('readonly', READ_ONLY);
     } catch (erreur) {console.error('Erreur sauvegarde des options:', erreur);}
   }
 
@@ -600,7 +645,6 @@ let CARTE_COMPACT = false;
   grist.onOptions(async function(customOptions, _) {
     customOptions = customOptions || {};    
 
-    TABLE_KANBAN = customOptions.table || "-";
     COLONNES_AFFICHAGE = customOptions.colonnes || COLONNES_AFFICHAGE_DEFAUT;
 
     REF_PROJET_RAW = customOptions.ref || '';
@@ -612,6 +656,7 @@ let CARTE_COMPACT = false;
 
     ROTATE_CARTE = (customOptions.rotation === undefined) ? true: customOptions.rotation;
     CARTE_COMPACT = (customOptions.compact === undefined) ? false: customOptions.compact;
+    READ_ONLY = (customOptions.readonly === undefined) ? false: customOptions.readonly;
 
     const cartes = document.querySelectorAll('.carte');
     
@@ -640,33 +685,33 @@ let CARTE_COMPACT = false;
     afficherKanban(records);
   });
   
-  /* Écoute des modifications individuelles */
-  grist.onRecord(record => {
-    console.log("Modification reçue:", record);
+  // /* Écoute des modifications individuelles */
+  // grist.onRecord(record => {
+  //   console.log("Modification reçue:", record);
 
-    // Mise à jour de la carte modifiée
-    const carte = document.querySelector(`[data-todo-id="${record.id}"]`);
-    if (carte) {
-      const nouvelleCarte = creerCarteTodo(record);
-      const conteneurCartes = document.querySelector(`.contenu-colonne[data-statut="${record[COLONNES_MAP.STATUT]}"]`);
-      if (conteneurCartes === carte.parentElement) {
-        carte.replaceWith(nouvelleCarte);
-      } else {
-        carte.remove();
-        conteneurCartes.insertBefore(nouvelleCarte, conteneurCartes.firstChild);
-      }
-    }
+  //   // Mise à jour de la carte modifiée
+  //   const carte = document.querySelector(`[data-todo-id="${record.id}"]`);
+  //   if (carte) {
+  //     const nouvelleCarte = creerCarteTodo(record);
+  //     const conteneurCartes = document.querySelector(`.contenu-colonne[data-statut="${record[COLONNES_MAP.STATUT]}"]`);
+  //     if (conteneurCartes === carte.parentElement) {
+  //       carte.replaceWith(nouvelleCarte);
+  //     } else {
+  //       carte.remove();
+  //       conteneurCartes.insertBefore(nouvelleCarte, conteneurCartes.firstChild);
+  //     }
+  //   }
     
-    // Mise à jour du popup si ouvert
-    const popup = document.getElementById('popup-todo');
-    if (popup.classList.contains('visible') && popup.dataset.currentTodo === record.id.toString()) {
-      togglePopupTodo(record);
-    }
+  //   // Mise à jour du popup si ouvert
+  //   const popup = document.getElementById('popup-todo');
+  //   if (popup.classList.contains('visible') && popup.dataset.currentTodo === record.id.toString()) {
+  //     togglePopupTodo(record);
+  //   }
     
-    // Mise à jour des compteurs et tri
-    document.querySelectorAll('.colonne-kanban').forEach(mettreAJourCompteur);
-    document.querySelectorAll('.contenu-colonne').forEach(trierTodo);
-  });
+  //   // Mise à jour des compteurs et tri
+  //   document.querySelectorAll('.colonne-kanban').forEach(mettreAJourCompteur);
+  //   document.querySelectorAll('.contenu-colonne').forEach(trierTodo);
+  // });
   
   // ========== EXPORT DES FONCTIONS GLOBALES ==========
   window.toggleColonne = toggleColonne;
