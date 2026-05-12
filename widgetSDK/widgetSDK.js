@@ -29,6 +29,7 @@ import './widgetSDK.css';
 /**  */
 export default class WidgetSDK {
     constructor() {
+        console.log("WidgetSDK: 1.2.0.62");
         const urlParams = new URLSearchParams(window.location.search);
         this.cultureFull = urlParams.has('culture')?urlParams.get('culture'):'en-US';
         this.culture = this.cultureFull.split('-')[0];
@@ -71,7 +72,7 @@ export default class WidgetSDK {
                     while(!this.meta.isLoaded()) { //checked every time because may change at any time
                         await WidgetSDK.sleep(50);
                     }
-                    this.col = grist.mapColumnNames(await this.meta.getMeta());
+                    this.col = this.mapColumnNames(await this.meta.getMeta());
                 } 
                 if (this.opt) {                    
                     while(!this._optloaded) {
@@ -200,6 +201,11 @@ export default class WidgetSDK {
         return true;
     }
 
+    /** Escape double quotes ("). Commonly used before injection into html attribute  */
+    escapeQuotes(txt) {
+        return txt?.replaceAll(/[\\]*"/g, '&quot;');
+    }
+
 
     //==========================================================================================
     // Localization
@@ -243,18 +249,22 @@ export default class WidgetSDK {
     }
 
     /** Provide translated text 
-     * @param {string} text - Original text
+     * @param {string|Array<string>} text - Original text
      * @param {object} [args=null] - Dynamic text to replace 
     */
     t(text, args = null) {
-        let trans = text.replaceAll('\n', '\\n').replaceAll('  ', ' ');
-        trans = this.I18N[trans] || text; //TODO if '' ?
-        if (args) {
-            Object.entries(args).forEach(([k,v]) => {
-                trans = trans.replaceAll('%' + k, v);
-            });
-        }
-        return trans.replaceAll('\\n', '\n');
+        if (Array.isArray(text)) {
+            return text.map(txt => this.t(txt, args));
+        } else {
+            let trans = text.replaceAll('\n', '\\n').replaceAll('  ', ' ');
+            trans = this.I18N[trans] || text; //TODO if '' ?
+            if (args) {
+                Object.entries(args).forEach(([k,v]) => {
+                    trans = trans.replaceAll('%' + k, v);
+                });
+            }
+            return trans.replaceAll('\\n', '\n');
+        }           
     }
 
     /** Load listed files and look for translation function 
@@ -318,8 +328,9 @@ export default class WidgetSDK {
     //==========================================================================================
 
     /** Initialize column meta data fetcher */
-    initMetaData() {
+    initMetaData(noRecord = false) {
         this.meta = new ColMetaFetcher();
+        if(noRecord) this._ismapped = true;
         return this.meta;
     }
 
@@ -331,61 +342,60 @@ export default class WidgetSDK {
     async mapData(rec, map, mapdata = false){
         this.dataMapped = mapdata;
         return new Promise(async resolve => {
-            this.map = map;
+            if(map) this.map = map;
             await this.mapOptions();            
-            if (this.meta) {                
-                if (mapdata) {
-                    let r = grist.mapColumnNames(rec);
-                    let fetch = {};
-                    if (Array.isArray(r)) {
-                        //format:rows => r = Array                    
-                        // need to await this map, else code will continue before reference will be managed
-                        await Promise.all(Object.entries(this.col).map( ([c,v]) => {
-                            return new Promise(async res => {
-                                if (v) {
-                                    if (Array.isArray(v)) {
-                                        await Promise.all(v.map(async sv => {
-                                            await this.#mapRowData(r, c, sv);
-                                        }));
-                                    } else {
-                                        await this.#mapRowData(r, c, v);
-                                    }                                    
-                                }
-                                res(true);
-                            });
-                        }));            
-                    } else {
-                        //format:columns => r = Object
-                        // need to await this map, else code will continue before reference will be managed
-                        await Promise.all(Object.entries(this.col).map(async ([c,v]) => {
+            if (this.meta && mapdata && this.col) {                
+                let r = this.mapColumnNames(rec); //this.mapColumnNames(rec);
+
+                let fetch = {};
+                if (Array.isArray(r)) {
+                    //format:rows => r = Array                    
+                    // need to await this map, else code will continue before reference will be managed
+                    await Promise.all(Object.entries(this.col).map( ([c,v]) => {
+                        return new Promise(async res => {
                             if (v) {
                                 if (Array.isArray(v)) {
                                     await Promise.all(v.map(async sv => {
-                                        await this.#mapColumnData(r, c, sv);
+                                        await this.#mapRowData(fetch, r, c, sv);
                                     }));
                                 } else {
-                                    await this.#mapColumnData(r,c,v);
-                                }
+                                    await this.#mapRowData(fetch,r, c, v);
+                                }                                    
                             }
-                        }));
-                    }
-                    this._ismapped = true;
-                    resolve(r);
+                            res(true);
+                        });
+                    }));            
+                } else {
+                    //format:columns => r = Object
+                    // need to await this map, else code will continue before reference will be managed
+                    await Promise.all(Object.entries(this.col).map(async ([c,v]) => {
+                        if (v) {
+                            if (Array.isArray(v)) {
+                                await Promise.all(v.map(async sv => {
+                                    await this.#mapColumnData(fetch,r, c, sv);
+                                }));
+                            } else {
+                                await this.#mapColumnData(fetch,r,c,v);
+                            }
+                        }
+                    }));
                 }
+                this._ismapped = true;
+                resolve(r);
             }
             this._ismapped = true;
-            resolve(grist.mapColumnNames(rec, map));
+            resolve(this.mapColumnNames(rec, map));
         });        
     }
 
-    async #mapRowData(r, c, v) {
+    async #mapRowData(f, r, c, v) {
         const t = v.type.split(':');
         if ((t[0] === 'RefList' || t[0] === 'Ref') && v.visibleCol > 0) {                                
-            if (!fetch[t[1]]) fetch[t[1]] = await grist.docApi.fetchTable(t[1]);                               
+            if (!f[t[1]]) f[t[1]] = await grist.docApi.fetchTable(t[1]);                               
             const cmeta = await v.getMeta(v.visibleCol);
             r = r.map(async item => {
-                item[c] = await v.parse(item[c], fetch[t[1]], cmeta);
-                item[c + '_id'] = await v.parseId(item[c], fetch[t[1]], cmeta);
+                item[c] = await v.parse(item[c], f[t[1]], cmeta);
+                item[c + '_id'] = await v.parseId(item[c], f[t[1]], cmeta);
                 return item;
             });                                        
         } else {
@@ -398,13 +408,13 @@ export default class WidgetSDK {
         r = await Promise.all(r); // need to wait at each loop, else item will be a Promise for the next loop
     }
 
-    async #mapColumnData(r, c, v) {
+    async #mapColumnData(f, r, c, v) {
         const t = v.type.split(':');
         if ((t[0] === 'RefList' || t[0] === 'Ref') && v.visibleCol > 0) { 
-            if (!fetch[t[1]]) fetch[t[1]] = await grist.docApi.fetchTable(t[1]);                               
+            if (!f[t[1]]) f[t[1]] = await grist.docApi.fetchTable(t[1]);                               
             const cmeta = await v.getMeta(v.visibleCol);
-            r[c + '_id'] = r[c].map(async item => await v.parseId(item, fetch[t[1]], cmeta));
-            r[c] = r[c].map(async item => await v.parse(item, fetch[t[1]], cmeta));                                
+            r[c + '_id'] = r[c].map(async item => await v.parseId(item, f[t[1]], cmeta));
+            r[c] = r[c].map(async item => await v.parse(item, f[t[1]], cmeta));                                
             r[c + '_id'] = await Promise.all(r[c + '_id']); 
         } else {                                
             r[c] = r[c].map(async item => await v.parse(item));
@@ -418,36 +428,39 @@ export default class WidgetSDK {
     */
     async encodeData(rec) {
         return new Promise(async resolve => {
-            if (this.meta) {
+            if (this.meta && this.col) {
                 let fetch = {};
                 if (Array.isArray(rec)) { // array of records
-                    await Promise.all(Object.entries(this.col).map( ([c,v]) => {
+                    await Promise.all(Object.entries(this.col).map(([c,vc]) => {
                         return new Promise(async res => {
-                            if (v) {
-                                const t = v.type.split(':');
-                                
-                                if ((t[0] === 'RefList' || t[0] === 'Ref') && v.visibleCol > 0) {    
-                                    if (!fetch[t[1]]) fetch[t[1]] = await grist.docApi.fetchTable(t[1]);                               
-                                    const cmeta = await v.getMeta(v.visibleCol);
-
-                                    rec = rec.map(async r => {
-                                        if (r.fields)
-                                            if (this.is(r.fields[c])) r.fields[c] = await v.encode(r.fields[c], fetch[t[1]], cmeta);
-                                        else 
-                                            if (this.is(r[c])) r[c] = await v.encode(r[c], fetch[t[1]], cmeta);
-                                        return r;
-                                    });
+                            if (vc) {
+                                if (!Array.isArray(vc)) vc = [vc];
+                                await Promise.all(vc.map(async v => {
+                                    const t = v.type.split(':');
                                     
-                                } else {
-                                    rec = rec.map(async r => {
-                                        if (r.fields)
-                                            if (this.is(r.fields[c])) r.fields[c] = await v.encode(r.fields[c]);
-                                        else 
-                                        if (this.is(r[c])) r[c] = await v.encode(r[c]);
-                                        return r;
-                                    });
-                                }
-                                rec = await Promise.all(rec); // need to wait at each loop, else item will be a Promise for the next loop
+                                    if ((t[0] === 'RefList' || t[0] === 'Ref') && v.visibleCol > 0) {    
+                                        if (!fetch[t[1]]) fetch[t[1]] = await grist.docApi.fetchTable(t[1]);                               
+                                        const cmeta = await v.getMeta(v.visibleCol);
+
+                                        rec = rec.map(async r => {
+                                            if (r.fields)
+                                                if (this.is(r.fields[c])) r.fields[c] = await v.encode(r.fields[c], fetch[t[1]], cmeta);
+                                            else 
+                                                if (this.is(r[c])) r[c] = await v.encode(r[c], fetch[t[1]], cmeta);
+                                            return r;
+                                        });
+                                        
+                                    } else {
+                                        rec = rec.map(async r => {
+                                            if (r.fields)
+                                                if (this.is(r.fields[c])) r.fields[c] = await v.encode(r.fields[c]);
+                                            else 
+                                            if (this.is(r[c])) r[c] = await v.encode(r[c]);
+                                            return r;
+                                        });
+                                    }
+                                    rec = await Promise.all(rec); // need to wait at each loop, else item will be a Promise for the next loop
+                                }));                                
                             }
                             res(true);
                         });
@@ -455,16 +468,19 @@ export default class WidgetSDK {
                 } else { // one record
                     let r = rec.fields ?? rec // one full record {id: i, fields:{data}} OR one record with data only                    
                     // need to await this map, else code will continue before reference will be managed
-                    await Promise.all(Object.entries(this.col).map(async ([c,v]) => {
-                        if (v && this.is(r[c])) {
-                            const t = v.type.split(':');
-                            if ((t[0] === 'RefList' || t[0] === 'Ref') && v.visibleCol > 0) {
-                                if (!fetch[t[1]]) fetch[t[1]] = await grist.docApi.fetchTable(t[1]);                               
-                                const cmeta = await v.getMeta(v.visibleCol);
-                                r[c] = await v.encode(r[c], fetch[t[1]], cmeta);
-                            } else {
-                                r[c] = await v.encode(r[c]);
-                            }       
+                    await Promise.all(Object.entries(this.col).map(async ([c,vc]) => {
+                        if (vc && this.is(r[c])) {
+                            if (!Array.isArray(vc)) vc = [vc];
+                            await Promise.all(vc.map(async v => {
+                                const t = v.type.split(':');
+                                if ((t[0] === 'RefList' || t[0] === 'Ref') && v.visibleCol > 0) {
+                                    if (!fetch[t[1]]) fetch[t[1]] = await grist.docApi.fetchTable(t[1]);                               
+                                    const cmeta = await v.getMeta(v.visibleCol);
+                                    r[c] = await v.encode(r[c], fetch[t[1]], cmeta);
+                                } else {
+                                    r[c] = await v.encode(r[c]);
+                                } 
+                            }));                                  
                         }
                     }));
                     if (rec.fields) rec.fields = r;
@@ -527,7 +543,7 @@ export default class WidgetSDK {
         }
         if (!Array.isArray(para)) para = [para];
         this._parameters = para;        
-        this.#parseOptions();        
+        this.parseOptions(this._parameters);        
         this.#reset();
 
         if (!this._config.classList.contains('grist-config'))
@@ -563,8 +579,8 @@ export default class WidgetSDK {
         if (typeof handler === 'function') this.events.onLoad = handler;
     } 
 
-    #parseOptions() {        
-        this._parameters.forEach(opt => {
+    parseOptions(options) {        
+        options.forEach(opt => {
             if (this.is(opt.template)) {
                 if (Array.isArray(opt.template)) {
                     opt.type = 'templateform';
@@ -599,7 +615,8 @@ export default class WidgetSDK {
             } else if (typeof opt.default === 'number') {
                 opt.type = !this.is(opt.values) ? 'number': 'dropdown';
             } else if (typeof opt.default === 'object') {
-                opt.type = 'object'; //Array.isArray(opt.default)? 'array':
+                if (opt.label && opt.event) opt.type = 'button';
+                else opt.type = 'object'; //Array.isArray(opt.default)? 'array':
             } else { //if (typeof opt.default === 'string') {
                 opt.type = !this.is(opt.values) ? 'string': 'dropdown';
             }
@@ -638,6 +655,7 @@ export default class WidgetSDK {
         if (this._parameters) {
             //Wait for loading and mapping
             await this.isLoaded();
+
             this.valuesList = {};
 
             this._parameters.forEach(async opt => {                
@@ -692,6 +710,17 @@ export default class WidgetSDK {
         }        
     }
 
+    async readOptionValues(options, view, values) {
+        if(!values) values = {};
+        options.forEach(opt => {
+            const elmt = view.querySelector('#' + opt.id);
+            if (elmt) {
+                values[opt.id] = this.#getOptValue(opt, elmt, values[opt.id]);              
+            }
+        });   
+        return values;
+    }
+
     #reset() {
         this.opt = {};
         this._parameters.forEach(opt => {
@@ -713,18 +742,18 @@ export default class WidgetSDK {
     async showConfig(show = true) {
         if (show) {
             await this.isMapped();
-
             if (this._mainview) this._mainview.style = 'display: none';
             this._config.style = '';
             // Build UI and load data 
             let html = `<div class="config-header"><button id="apply-button" class="config-button">${this.t('Apply')}</button><button id="close-button" class="config-button">${this.t('Close')}</button></div>`;
-            Object.entries(this.#groupBy(this._parameters, 'group')).forEach(([gp, opts]) => {
-                html += `<div class="config-section"><div class="config-section-title">${this.t(gp)}</div>`; //if gp not null
-                opts.forEach(opt => {
-                    html += this.#getOptHtml(opt, this.opt[opt.id], -1, opt.id);      
-                });
-                html += `</div>`;
-            });
+            html += this.getOptionsHtml(this._parameters, this.opt, this.valuesList);
+            // Object.entries(this.#groupBy(this._parameters, 'group')).forEach(([gp, opts]) => {
+            //     html += `<div class="config-section"><div class="config-section-title">${this.t(gp)}</div>`; //if gp not null
+            //     opts.forEach(opt => {
+            //         html += this.#getOptHtml(opt, this.opt[opt.id], -1, opt.id);      
+            //     });
+            //     html += `</div>`;
+            // });
 
             //localization
             if (this.I18N) {
@@ -770,6 +799,39 @@ export default class WidgetSDK {
         }
     }
 
+    getOptionsHtml(options, values, valuesList = {}) {
+        let html = '';
+        Object.entries(this.#groupBy(options, 'group')).forEach(([gp, opts]) => {
+            html += `<div class="config-section"><div class="config-section-title">${this.t(gp)}</div>`; //if gp not null
+            opts.forEach(opt => {
+                html += this.#getOptHtml(opt, values[opt.id], valuesList, -1, opt.id);      
+            });
+            html += `</div>`;
+        });
+        return html;
+    }
+
+    setOptionsEvent(doc) {
+        doc.querySelectorAll("div.config-switch")?.forEach(element => {
+            element.addEventListener('click', function(event) {this.toggleswitch(event);}.bind(this));
+        });
+        doc.querySelectorAll("div.collapse")?.forEach(element => {
+            element.parentElement.parentElement.addEventListener('click', function(event) {this.togglecollapse(event);}.bind(this));
+        });
+        doc.querySelectorAll("#add-button")?.forEach(element => {
+            element.addEventListener('click', function(event) {this.addItem(event);}.bind(this));
+        });
+
+        // Auto-expandables fields init
+        setTimeout(() => {
+            const textareas = document.querySelectorAll('.auto-expand');
+            textareas.forEach(textarea => {
+            textarea.style.height = '';
+            textarea.style.height = textarea.scrollHeight + 'px';
+            });
+        }, 0);
+    }
+
     #groupBy = function(xs, key) {
         return xs.reduce(function(rv, x) {
             (rv[x[key]] ??= []).push(x);
@@ -777,38 +839,39 @@ export default class WidgetSDK {
         }, {});
     };
 
-    #getOptHtml(opt, value, idx = -1, id = '') {
+    #getOptHtml(opt, value, valuesList, idx = -1, id = '', lock = false) {
         let html = '';
         if (!opt.hidden) {
-            const title = idx >= 0 ? (this.valuesList[opt.id]?this.valuesList[opt.id][idx]:(this.t(opt.title) + ' #'+(idx+1))) : this.t(opt.title);
+            
+            const title = idx >= 0 ? (valuesList[opt.id]?valuesList[opt.id][idx]:(this.t(opt.title) + ' #'+(idx+1))) : this.t(opt.title);
             html += `<div class="config-row"><div class="config-row-header"><div class="config-title`
             html += `${opt.collapse?`"><div class="collapse"></div>`:' nocollapse">'}${title}</div>`;
             html += `<div class="config-subtitle">${this.t(opt.subtitle)}</div>`;
-            html += (!opt.inbloc?`<div class="config-value">${this.#getOptValueHtml(opt, value, idx, id)}</div>`:'')+ (idx>=0?'<div class="delete"></div>':'') + `</div>`;
+            html += (!opt.inbloc?`<div class="config-value">${this.#getOptValueHtml(opt, value, valuesList, idx, id)}</div>`:'')+ ((idx>=0 && !lock)?'<div class="delete"></div>':'') + `</div>`;
             if (opt.collapse) {
                 html += `<div class="bloc" style="max-height: 0px;">` + (this.is(opt.description)?`<div class="details">${this.t(opt.description).replaceAll("\n", "<br>").replaceAll("\\n", "<br>")}</div>`:'');
                 if (opt.type === 'template') {                    
                     html += `<div id="${opt.id}" class="config-dyn">`;
                     value?.forEach((v, i) => {
-                        html += this.#getOptHtml(opt.template, v, i, id + '_' + i);
+                        html += this.#getOptHtml(opt.template, v, valuesList, i, id + '_' + i, valuesList[opt.id]);
                     });
                     html += `</div>`;
-                    html += this.valuesList[opt.id]? '' : `<div class="config-header"><button id="add-button" data-id="${opt.id}" class="config-button dyn">+</button></div>`;
+                    html += valuesList[opt.id]? '' : `<div class="config-header"><button id="add-button" data-id="${opt.id}" class="config-button dyn">+</button></div>`;
                 } else if (opt.type === 'templateform') {
                     html += `<div id="${opt.id}" class="config-dyn">`;
                     value?.forEach((v, i) => {
                         if (v) {
-                            html += `<div class="config-section"><div class="config-section-title">${this.valuesList[opt.id][i]}</div>`;
+                            html += `<div class="config-section"><div class="config-section-title">${valuesList[opt.id][i]}</div>`;
                             Object.entries(v).forEach(([tk,tv]) => {
-                                html += this.#getOptHtml(opt.template.find(t => t.id === tk), tv, -1, id + '_' + i + '_' + tk); 
+                                html += this.#getOptHtml(opt.template.find(t => t.id === tk), tv, valuesList, -1, id + '_' + i + '_' + tk, valuesList[opt.id]); 
                             });
                             html += `</div>`;
                         }                        
                     });
                     html += `</div>`;
-                    html += this.valuesList[opt.id]? '': `<div class="config-header"><button id="add-button" data-id="${opt.id}" class="config-button dyn">+</button></div>`;
+                    html += valuesList[opt.id]? '': `<div class="config-header"><button id="add-button" data-id="${opt.id}" class="config-button dyn">+</button></div>`;
                 } else if (opt.inbloc) {
-                    html += this.#getOptValueHtml(opt, value, idx, id);   
+                    html += this.#getOptValueHtml(opt, value, valuesList, idx, id);   
                 }
                 html += `${opt.type !== 'templateform'?`<div class="bloc-bottom">`:''}</div></div>`;
             }
@@ -817,35 +880,47 @@ export default class WidgetSDK {
         return html;  
     }
 
-    #getOptValueHtml(opt, value, idx = -1, vid = '') {
+    #getOptValueHtml(opt, value, valuesList, idx = -1, vid = '') {
         const val = this.#formatValue(opt, value);
         const id = `id="${vid}" ${idx>=0?`data-idx="${idx}" `:''}`;
-        switch (opt.type) { //TODO add : button, 
+        switch (opt.type) { 
             case 'boolean':
-                return `<div ${id}class="config-switch switch_transition ${val? 'switch_on':''}">
+                return `<div ${id}class="config-switch switch_transition ${val? 'switch_on':''}" ${this.#getEvent(opt.event)}>
 <div class="switch_slider"></div><div class="switch_circle"></div></div>`;
 
             case 'number':
-                return `<input ${id}type="number" class="config-input" value="${val}">`;
+                return `<input ${id}type="number" class="config-input" value="${val}" ${this.#getEvent(opt.event)}>`;
 
            
             case 'longstring':
-                return `<textarea ${id}class="config-textarea auto-expand" oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'">${val}</textarea>`;
+                return `<textarea ${id}class="config-textarea auto-expand ${opt.code?'code':''}" oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'" ${this.#getEvent(opt.event)}>${val}</textarea>`;
 
             case 'object':
-                return `<textarea ${id}class="config-textarea auto-expand" oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'">${JSON.stringify(val, null, 2)}</textarea>`;
+                return `<textarea ${id}class="config-textarea auto-expand" oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'" ${this.#getEvent(opt.event)}>${JSON.stringify(val, null, 2)}</textarea>`;
 
 
             case 'dropdown': //keep it before default
-                if(this.valuesList[opt.id]) {
-                    let html = `<select ${id}class="field-select">`;
-                    this.valuesList[opt.id].forEach(v => {html += `<option value="${v}" ${v === val ? 'selected':''}>${v}</option>`}); //TODO if in template with values ?
-                    return html + '</select>';
+                let html = `<select ${id}class="field-select" ${this.#getEvent(opt.event)}>`;
+                if(valuesList[opt.id]) {                    
+                    valuesList[opt.id].forEach(v => {html += `<option value="${this.escapeQuotes(v)}" ${v === val ? 'selected':''}>${v}</option>`}); //TODO if in template with values ?                    
                 } //else default                
-    
+                return html + '</select>';
+
+            case 'button':
+                return `<button id="action-button" class="config-button" ${this.#getEvent(opt.event)}>${this.t(opt.label??'Execute')}</button>`;
+                
             default: //string
-                return `<input ${id}class="config-input" value="${val}">`;
+                return `<input ${id}class="config-input ${opt.code?'code':''}" value="${this.escapeQuotes(val)}" ${this.#getEvent(opt.event)}>`;
         }
+    }
+
+    #getEvent(events) {
+        if (!events) return '';
+        let html = '';
+        Object.entries(events).forEach(([k, v]) => {
+            html += `${k}="${v}"`;
+        });
+        return html;
     }
 
     #getOptValue(opt, elmt, v) {
@@ -865,16 +940,17 @@ export default class WidgetSDK {
                 });
                 return r; 
             case 'templateform':
-                //var r = [];
+                var r = [];
                 v.forEach((sv, i) => {
-                    //let ri = [];
+                    let ri = {};
                     Object.keys(sv).forEach(tk => {
                         let e = elmt.querySelector('#' + elmt.id + '_' + i + '_' + tk);
-                        if (e) sv[tk] = this.#getOptValue(opt.template.find(t => t.id === tk), e);
-                        else sv[tk] = undefined;
-                    });     
+                        if (e) ri[tk] = this.#getOptValue(opt.template.find(t => t.id === tk), e);
+                        else ri[tk] = undefined;                        
+                    }); 
+                    r.push(ri);
                 });
-                return v;
+                return r;
             default:  //number, dropdown, string, longstring
                 return this.#parseValue(opt, elmt.value);
         }
@@ -997,7 +1073,7 @@ export default class WidgetSDK {
     // Grist helper
     //==========================================================================================
     /** Encapsulate grist.ready to ensure correct initialization and translation
-     * @param {Object} config - Usual object provided to grist.read
+     * @param {Object} config - Usual object provided to grist.ready
      */
     ready(config) {
         if (config) {
@@ -1033,42 +1109,86 @@ export default class WidgetSDK {
      * @param {object} data - Object with prop as column id and value
      */
     formatRecord(id, data) {
-        return {id: parseInt(id), fields:data};
+        return {id: parseInt(id), fields:data}; //TODO manage encoding
+    }
+
+    /** Get Grist current table reference */
+    #getTable() {
+        if(!this.table) this.table = grist.getTable();
+        return this.table?true:false;
     }
 
     /** Update the current Grist table with given data 
      * @param {object|[object]} rec - Object with prop as column id and value as new value
+     * @param {boolean} encode - True if data need to be encoded before
      * @returns the answer of the update or null
     */
     async updateRecords(rec, encode) {       
         encode = encode ?? this.dataMapped;
-        if(!this.table) this.table = grist.getTable();
+        if(!this.#getTable()) return null;
 
         if (encode) rec = await this.encodeData(rec); //encode data if needed
         rec = Array.isArray(rec)? rec.map(item => this.mapColumnNamesBack(item)):this.mapColumnNamesBack(rec);
-
-        return await this.table?.update(rec);
+        return this.applyModificationOnGrist(async () => this.table.update(rec));
     }
 
+    /** Create a new record in the current Grist table
+     * @param {object|[object]} rec - Object with prop as column id and value as new value
+     * @param {boolean} encode - True if data need to be encoded before
+     * @returns the answer of the create or null
+     */
     async createRecords(rec, encode) {
         encode = encode ?? this.dataMapped;        
-        if(!this.table) this.table = grist.getTable();
+        if(!this.#getTable()) return null;
 
         if (encode) rec = await this.encodeData(rec); //encode data if needed
         rec = Array.isArray(rec)? rec.map(item => this.mapColumnNamesBack(item)):this.mapColumnNamesBack(rec);
-      
-        return await this.table?.create(rec);
+        return this.applyModificationOnGrist(async () => this.table.create(rec));
     }
 
+    /** Delete given record(s) in the current Grist table
+     * @param {number|Array<number>} id - id(s) to remove from the table
+     * @returns the answer of the delete
+     */
     async destroyRecords(id) {
-        if(!this.table) this.table = grist.getTable();
-        return Array.isArray(id) ? await this.table?.destroy(id.map(i => parseInt(i))) : await this.table?.destroy(id);     
+        if(!this.#getTable()) return null;
+        return this.applyModificationOnGrist(async () => Array.isArray(id) ? await this.table.destroy(id.map(i => parseInt(i))) : await this.table.destroy(id));     
+    }
+
+    /** When applying modification on Grist table, ensure that data mapping
+     * is correctly performed
+     */
+    async applyModificationOnGrist(f) {
+        if(!f) return null;
+        if(this.dataMapped) this._ismapped = false;
+        const res = await f();
+        if(this.dataMapped) await this.isMapped();
+        return res;
     }
 
     /** Maps back properly records columns to be compatible with Grist */
     mapColumnNamesBack(rec) {
         rec.fields = Object.fromEntries(Object.entries(rec.fields).map((kv) => [this.map[kv[0]] ?? kv[0], kv[1]]));
         return rec;
+    }
+
+    /** Maps columns from grist to widget name, but keeping all non mapped column (instead of grist.mapColumnNames) */
+    mapColumnNames(rec, map = null) {      
+        if(!map) map = this.map;
+        if(!map) return rec;
+        map.id = 'id';
+        if(Array.isArray(rec)) {
+            //return grist.mapColumnNames(rec);
+            return rec.map(v => this.mapColumnNames(v, map));
+        } else {
+            return Object.fromEntries(Object.entries(map).map((kv) => {
+                const v = kv[1];
+                if (v && Array.isArray(v)) {
+                    return [kv[0], v.map(sv => rec[sv])];
+                }
+                return [kv[0], v ? rec[v] : v];
+            }));
+        }        
     }
 
     /** Encapsulate grist.OnRecords to ensure the correct timing between the options and mapping loading 
@@ -1099,9 +1219,20 @@ export default class WidgetSDK {
         }, args);
     }
 
+    /** Subscribe to table mapping change
+     * @param {function} main - Function to call when the mapping has been changed 
+     */
+    onMappingChange(main) {
+        grist.on('message', async (e) => {
+            if (e.mappingsChange) main();
+        });
+    }
+
     async fetchSelectedRecord(id) {
         let rec = await grist.fetchSelectedRecord(id); 
-        return grist.mapColumnNames(rec); //TODO mapData ?
+        const res = this.mapColumnNames(rec); //TODO mapData ? await this.mapData(rec, null, true); //
+        if(this.dataMapped) await this.isMapped();
+        return res;
     }
 }
 

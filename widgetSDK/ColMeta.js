@@ -30,14 +30,29 @@ export default class ColMeta {
         return this.isFormula && this.formula?.trim();
     }
 
+    /** Gets the list of possible choices for the column. If the column type is 'Choice' or 'ChoiceList', 
+     * return the choice list. If the column type is 'Ref' or 'RefList', return the linked
+     * column content
+     */
     async getChoices() {
         const t = this.type.split(':');
         if (t[0] === 'Ref' || t[0] === 'RefList') {
             const recs = await grist.docApi.fetchTable(t[1]);
             const col = await this.getMeta(this.visibleCol);
             return recs[col.colId]
-        } else if (t[0] === 'Choice') {
+        } else if (t[0] === 'Choice' || t[0] === 'ChoiceList') { // TODO choices ?
             return this.widgetOptions?.choices;
+        }
+        return null;
+    }
+
+    /** For attachment column, return the url for the given id 
+     * @param {number} id - id of the attachment
+    */
+    async getURL(id) {
+        const t = this.type.split(':');
+        if (t[0] === 'Attachments') {
+            return await this._fullMeta.getURL(id);
         }
         return null;
     }
@@ -88,7 +103,22 @@ export default class ColMeta {
                     } else return value.rowId;              
                 } else return undefined;                
             }
-        } //TODO manage other encoded data (if keepEncode === false)
+        } else if(t[0] === 'Date') {
+            if (Array.isArray(value)) {
+                if (value[1] > 0) {
+                    return new Date(value[1] * 1000);
+                } else return undefined;
+            } // else return value
+        } else if(t[0] === 'DateTime') {
+            if (Array.isArray(value)) {
+                if (value[1] > 0) {
+                    return new Date(value[1] * 1000); // todo manage time zone
+                } else return undefined;
+            } // else return value
+        }       
+        
+        //TODO manage other encoded data (if keepEncode === false), all possible list is : Int (Integer column), Numeric (Numeric column), Text, Date, DateTime, Bool (Toggle column), Choice, ChoiceList, Ref (Reference column), RefList (Reference List), Attachments.
+        
         return value; //else
     }
 

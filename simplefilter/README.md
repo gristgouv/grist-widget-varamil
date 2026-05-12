@@ -1,7 +1,7 @@
 *(français plus bas)*
 
 # Grist Simple Filer Widget
-A widget to display a simple chat interface storing all messages in a row without additionnal table.
+*Simple Filter* is a widget to quickly filter a table.
 
 ## Features
 * Easy to use and quick to access 
@@ -65,7 +65,7 @@ The following options modify the overall behavior of the filter. They should alw
 * `“...”`: considers everything enclosed in quotation marks to be part of the same word, allowing spaces to be included in a word. The whole word doesn't need to be enclosed in quotation marks `mar “tin paul”` will have the same result as `“martin paul”`. However, for regular expressions (see next paragraph), quotation marks must be outside `/` (`“/.../”`) to not be interpreted. If quotation marks are to be included in the word, use `\"` to escape.
 
 
-* `@IdCol1,IdCol2`: doesn't have to be at the beginning, but must be a word in its own (so if it's at the beginning, a space is required after the last ID and before the first word). Allows you to specify the columns in which to search. Overwrites configuration, but applies to visible/hidden columns as defined in configuration. The IDs to be used are those of Grist (without the $) and must be separated by commas. Please note that case is important.
+* `@IdCol1,IdCol2`: doesn't have to be at the beginning, but must be a word in its own (so if it's at the beginning, a space is required after the last ID and before the first word). Allows you to specify the columns in which to search. Overwrites configuration, but applies to visible/hidden columns as defined in configuration. The IDs to be used are those of Grist (without the $) and must be separated by commas. Case is not important anymore, and even a partial match can be used (if column id is *Reference* then *@ref* will match).
 
 ### Words options
 The following options are applied to the word, and must always be at the beginning of the word:
@@ -73,13 +73,21 @@ The following options are applied to the word, and must always be at the beginni
 * `!` : *negation*, indicates that the *word* **must not** be present. Must always come first, before the other modifiers listed below.
 
 
-* `=` : *exactly equal*, indicates that the line must contain a cell that **exactly** contains this *word*. Use `!=` for the inverse (**is different from**) 
+* `==` : *exactly equal*, indicates that the line must contain a cell that **exactly** contains this *word*. Use `!=` for the inverse (**is different from**) 
 
+* `=` : *equal*, like `==`, except if the a number is following the `=`, then a numerical comparison is performed (instead of a literal comparison). To force a literal comparison, use `==`. Example: `=1` will match `1` and `1.0`, but `==1` won't match `1.0`.
 
-* `<` : *begins with*, indicates that the line must contain a cell **beginning with** this *word* (e.g. `<martin` will display lines with `martin paul` but not `jean martin`). Use `!<` for the reverse (**does not begin with**) 
+* `<<` : *begins with*, indicates that the line must contain a cell **beginning with** this *word* (e.g. `<martin` will display lines with `martin paul` but not `jean martin`). Use `!<` for the reverse (**does not begin with**) 
 
+* `<` : *strictly inferior*, like `<<`, except if the a number is following the `<`, then a numerical comparison is performed, and the cell content must be strictly inferior to the given value.
 
-* `>` : *terminates with*, indicates that the line must contain a cell **terminating with** this *word* (e.g. `>martin` will display lines with `jean martin` but not `martin paul`). Use `!<` for the reverse (**does not end with**)
+* `<=` : *inferior or equal*, like `<<`, except if the a number is following the `<`, then a numerical comparison is performed, and the cell content must be inferior or equal to the given value.
+
+* `>>` : *terminates with*, indicates that the line must contain a cell **terminating with** this *word* (e.g. `>martin` will display lines with `jean martin` but not `martin paul`). Use `!<` for the reverse (**does not end with**).
+
+* `>` : *strictly superior*, like `>>`, except if the a number is following the `>`, then a numerical comparison is performed, and the cell content must be strictly superior to the given value.
+
+* `>=` : *superior or equal*, ike `>>`, except if the a number is following the `>`, then a numerical comparison is performed, and the cell content must be superior or equal to the given value.
 
 * `'` : *independent word*, indicates that the text following the `'` is to be found as a “complete word”. Thus, `'ok` will display lines where the word `ok` is found, but not those containing words including `ok` such as `books` or `look`. Use `!'` to find the absence of a word, but cannot be used with `=`, `<` or `>`.
 
@@ -141,6 +149,7 @@ Effectue une recherche de type OU des mots listés (séparés par des espaces) d
 • Commencer une recherche par '&&' ⇒ tous les mots doivent être présent dans une même colonne
 • '!' avant un mot ⇒ le mot ne doit pas être présent
 • '=', '<' ou '>' avant un mot (et après le '!' s'il y a) ⇒ la cellule doit être exactement égale, commencer par ou terminer par le mot. Avec le '=', remplacer les espaces par '\\s', sinon le mot sera découpé
+• '=', '<', '>', '>=' ou '<=' avant un nombre (et après le '!' s'il y a) ⇒ la valeur de la cellule doit valider la comparaison. Pour forcer une comparaison textuelle utiliser '==', '<<' et '>>'.
 • '"..."' ⇒ considère tous ce qu'il y a entre guillemets comme un mot (incluant les espaces)
 • ' avant un mot ⇒ le mot doit être présent de manière indépendante ('eau' ne vérifie pas 'gâteaux')
 • Terminer un mot par '@IdCol1,IdCol2' ⇒ le mot doit être présent dans la liste des colonnes indiquée (séparées par des virgules). Si un mot recherché contient '@', alors ajouter un '@' à la fin pour ignorer
@@ -177,7 +186,7 @@ Les options suivantes modifies le comportement global du filtre. Elles doivent �
 * `"..."` : considère que tous ce qui est contenu entre les quillemets fait parti du même mot, permet aini d'inclure des espaces dans un mot. Tout le mot n'a pas besoin d'être entre guillemets `mar"tin paul"` aura le même résulat que `"martin paul"`. Cependant pour les expressions régulières (voir paragraphe suivant) les guillemets doivent être à l'extérieur des `/` (`"/.../"`) pour ne pas être interprêtés. Si des guillemets doivent être inclus dans le mot, utiliser `\"` échapper.
 
 
-* `@IdCol1,IdCol2` : n'a pas besoin d'être au début, mais doit être un mot à part entière (et donc s'il est au début il faut un espace après le dernier ID et le début du premier mot). Permet de spécifier les colonnes dans lesquelles faire la recherche. Écrase la configuration, mais s'applique aux colonnes visibles/cachées comme défini dans la configuration. Les IDs à utiliser sont ceux de Grist (sans les $) et doivent être séparés par des virgules. Attention, la casse est importante.
+* `@IdCol1,IdCol2` : n'a pas besoin d'être au début, mais doit être un mot à part entière (et donc s'il est au début il faut un espace après le dernier ID et le début du premier mot). Permet de spécifier les colonnes dans lesquelles faire la recherche. Écrase la configuration, mais s'applique aux colonnes visibles/cachées comme défini dans la configuration. Les IDs à utiliser sont ceux de Grist (sans les $) et doivent être séparés par des virgules. La casse n'est plus importante et une correspondance partielle peut être utilisée (si l'id de la colonne est *Reference* alors utiliser *@ref* fonctionnera).
 
 
 ### Options de mot
@@ -185,20 +194,28 @@ Les options suivantes sont appliquées au mots, et doivent toujours être au dé
 
 * `!` : *négation*, indique que le *mot* **ne doit pas** être présent. Doit toujours être en premier, avant les autres modificateurs listé ci-après
 
+* `==` : *exactement égal*, indique que la ligne doit contenir une cellule contenant **exactement** ce *mot*. Utiliser `!==` pour l'inverse (**est différent de**). 
 
-* `=` : *exactement égal*, indique que la ligne doit contenir une cellule contenant **exatctement** ce *mot*. Utiliser `!=` pour l'inverse (**est différent de**) 
+* `=` : *égal*, ce comporte comme `==`, sauf si ce qui suit le `=` est un nombre, alors une comparaison numérique est fait (au lieu d'une comparaison littérale). Pour forcer la comparaison littérale utiliser le `==`. Exemple : `=1` va être vrai pour des cellules contenant `1` ou `1.0`, alors que `==1` ne vérifiera que `1`.
 
-* `<` : *commence par*, indique que la ligne doit contenir une cellule **commençant par** ce *mot* (ex: `<martin` affichera les lignes avec `martin paul` mais pas `jean martin`). Utiliser `!<` pour l'inverse (**ne commence pas par**) 
+* `<<` : *commence par*, indique que la ligne doit contenir une cellule **commençant par** ce *mot* (ex: `<martin` affichera les lignes avec `martin paul` mais pas `jean martin`). Utiliser `!<` pour l'inverse (**ne commence pas par**).
 
+* `<` : *inférieur strict*, ce comporte comme `<<`, sauf si ce qui suit le `<` est un nombre, auquel cas une comparaison numérique est fait, et le contenu de la cellule doit être strictement inférieure à la valeur indiquée.
 
-* `>` : *termine par*, indique que la ligne doit contenir une cellule **terminant par** ce *mot* (ex: `>martin` affichera les lignes avec `jean martin` mais pas `martin paul`). Utiliser `!<` pour l'inverse (**ne termine pas par**) 
+* `<=` : *inférieur ou égal*, ce comporte comme `<<`, sauf si ce qui suit le `<` est un nombre, auquel cas une comparaison numérique est fait, et le contenu de la cellule doit être inférieure ou égale à la valeur indiquée.
+
+* `>>` : *termine par*, indique que la ligne doit contenir une cellule **terminant par** ce *mot* (ex: `>martin` affichera les lignes avec `jean martin` mais pas `martin paul`). Utiliser `!<` pour l'inverse (**ne termine pas par**) 
+
+* `>` : *supérieur strict*, ce comporte comme `>>`, sauf si ce qui suit le `>` est un nombre, auquel cas une comparaison numérique est fait, et le contenu de la cellule doit être strictement supérieure à la valeur indiquée.
+
+* `>=` : *supérieur ou égal*, ce comporte comme `>>`, sauf si ce qui suit le `>` est un nombre, auquel cas une comparaison numérique est fait, et le contenu de la cellule doit être supérieure ou égale à la valeur indiquée.
 
 * `'` : *mot indépendant*, indique que le texte qui suit le `'` doit être trouvé comme un "mot complet". Ainsi, `'eau` affichera les lignes où le mot `eau` est trouvé, mais pas celles qui contiendront des mots incluants `eau` tels que `gateaux` ou `rideau`. Utiliser `!'` pour trouver l'absence d'un mot, mais ne peut pas être utilisé avec `=`, `<` ou `>`.
 
 
 * `/` : *regex*, indique que la ligne doit contenir une cellule qui **vérifie** l'expression régulière. Utilise directement le format de [JavaScript](https://developer.mozilla.org/fr/docs/Web/JavaScript/Reference/Global_Objects/RegExp). Remplacer les espaces par des `\s` ou utiliser des `"` à l'extérieur de la regex (ex: `"/reg ex/"`) pour que la regex ne soit pas découpée. Utiliser `\\s` pour échapper. Par défaut les modificateurs `im` sont utilisés. Utiliser `!/` pour l'inverse (**de doit pas vérifier**). Ne peut pas être utilisé avec `=`, `<` ou `>` car ça n'a pas de sens, les regex permettant de gérer ces options (via `^` et `$`). 
 
-* `@IdCol1,IdCol2` : doit être à la fin du *mot* (contrairement aux autres). Permet de spécifier les colonnes dans lesquelles faire la recherche du *mot*. Écrase la configuration, mais s'applique aux colonnes visibles/cachées comme défini dans la configuration. Les IDs à utiliser sont ceux de Grist (sans les $) et doivent être séparés par des virgules. Attention, la casse est importante. **Si la recherche contien un `@`, ajouter un `@` à la toute fin du mot pour ignorer** (ex: `martin@paul.com@` pour pouvoir chercher `martin@paul.com` sinon va chercher `martin` dans la colonne `paul.com`)
+* `@IdCol1,IdCol2` : doit être à la fin du *mot* (contrairement aux autres). Permet de spécifier les colonnes dans lesquelles faire la recherche du *mot*. Écrase la configuration, mais s'applique aux colonnes visibles/cachées comme défini dans la configuration. Les IDs à utiliser sont ceux de Grist (sans les $) et doivent être séparés par des virgules. La casse n'est plus importante et une correspondance partielle peut être utilisée (si l'id de la colonne est *Reference* alors utiliser *@ref* fonctionnera). **Si la recherche contien un `@`, ajouter un `@` à la toute fin du mot pour ignorer** (ex: `martin@paul.com@` pour pouvoir chercher `martin@paul.com` sinon va chercher `martin` dans la colonne `paul.com`)
 
 ## Limitations
 La principale limitation est qu'il n'est pas possible de faire des combinaisons de *OU* et de *ET*. 
