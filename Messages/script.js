@@ -27,18 +27,18 @@ function localize() {
   var lang = culture.split('-')[0];
   switch (lang) {
     case 'fr':
-      document.getElementById('new-title').innerHTML = 'Nouveau message';
-      document.getElementById('send').innerHTML = 'Envoyer';
+      document.getElementById('new-title').textContent = 'Nouveau message';
+      document.getElementById('send').textContent = 'Envoyer';
       break;
 
     case 'es':
-      document.getElementById('new-title').innerHTML = 'Nuevo mensaje';
-      document.getElementById('send').innerHTML = 'Enviar';
+      document.getElementById('new-title').textContent = 'Nuevo mensaje';
+      document.getElementById('send').textContent = 'Enviar';
       break;
 
     default:
-      document.getElementById('new-title').innerHTML = 'New message';
-      document.getElementById('send').innerHTML = 'Send';
+      document.getElementById('new-title').textContent = 'New message';
+      document.getElementById('send').textContent = 'Send';
   }
 
 }
@@ -154,13 +154,15 @@ function DisplayMessage(author, date, message) {
 
   card.innerHTML = `
       <div class="card-header">
-        <span class="author">${author}</span>
-        <span class="date">${date.toLocaleString(culture)}</span>
+        <span class="author"></span>
+        <span class="date"></span>
       </div>
-      <div class="card-content">${message}</div>
+      <div class="card-content"></div>
     `;
-  
-    document.getElementById('msg-container').append(card);
+  card.querySelector('.author').textContent = author;
+  card.querySelector('.date').textContent = date.toLocaleString(culture);
+  card.querySelector('.card-content').innerHTML = DOMPurify.sanitize(message);
+  document.getElementById('msg-container').append(card);
 }
 
 function LoadMesssages(messages) {
