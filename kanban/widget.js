@@ -112,6 +112,15 @@ let READ_ONLY = false;
       return '';
     }
   }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
   
   // ========== CRÉATION DES CARTES ET COLONNES ==========
   /* Création d'une carte TODO */
@@ -134,13 +143,29 @@ let READ_ONLY = false;
     const infoColonne = COLONNES_AFFICHAGE.find((colonne) => {return colonne.id === todo[COLONNES_MAP.STATUT]});
 
     carte.innerHTML = `
-      ${projetRef && projetRef.length > 0 ? `<div class="projet-ref truncate">#${projetRef}</div>` : ''}
-      ${type ? `<div class="type-tag truncate">${type}</div>` : (projetRef && projetRef.length > 0 ? '<div>&nbsp;</div>':'')}
-      <div class="description">${description}</div>
-      ${deadline ? `<div class="deadline${todo[COLONNES_MAP.DEADLINE] < Date.now() ? ' late':''} truncate">📅 ${deadline}</div>` : (responsable ? '<div>&nbsp;</div>':'')}
-      ${responsable ? `<div class="responsable-badge truncate">${responsable}</div>` : ''}
-      ${infoColonne?.isdone ? `<div class="tampon-termine" style="color: ${infoColonne?.couleur};">${todo[COLONNES_MAP.STATUT]}</div>` : ''}      
+      ${projetRef && projetRef.length > 0 ? `<div class="projet-ref truncate"></div>` : ''}
+      ${type ? `<div class="type-tag truncate"></div>` : (projetRef && projetRef.length > 0 ? '<div>&nbsp;</div>':'')}
+      <div class="description"></div>
+      ${deadline ? `<div class="deadline${todo[COLONNES_MAP.DEADLINE] < Date.now() ? ' late':''} truncate"></div>` : (responsable ? '<div>&nbsp;</div>':'')}
+      ${responsable ? `<div class="responsable-badge truncate"></div>` : ''}
+      ${infoColonne?.isdone ? `<div class="tampon-termine">${todo[COLONNES_MAP.STATUT]}</div>` : ''}
     `;
+    if (projetRef) {
+      carte.querySelector('.projet-ref').textContent = `#${projetRef}`;
+    }
+    if (type) {
+      carte.querySelector('.type-tag').textContent = type;
+    }
+    carte.querySelector('.description').textContent = description;
+    if (deadline) {
+      carte.querySelector('.deadline').textContent = `📅 ${deadline}`;
+    }
+    if (responsable) {
+      carte.querySelector('.responsable-badge').textContent = responsable;
+    }
+    if (infoColonne?.isdone) {
+      carte.querySelector('.tampon-termine').style.color = infoColonne?.couleur;
+    }
   
     carte.addEventListener('click', () => togglePopupTodo(todo));
     return carte;
@@ -157,8 +182,8 @@ let READ_ONLY = false;
     }
   
     colonneElement.innerHTML = `
-      <div class="entete-colonne" style="background-color: ${colonne.couleur}">
-        <div class="titre-statut">${colonne.libelle} <span class="compteur-colonne">(0)</span></div>
+      <div class="entete-colonne">
+        <div class="titre-statut"><span class="titre-statut-libelle"></span> <span class="compteur-colonne">(0)</span></div>
         ${(colonne.btajout && !READ_ONLY) ? `
           <button class="bouton-ajouter-entete ${CARTE_COMPACT ? ' compact': ''}" onclick="creerNouvelleTache('${colonne.id}')">+</button>
         ` : ''}
@@ -169,7 +194,8 @@ let READ_ONLY = false;
       ` : ''}
       <div class="contenu-colonne" data-statut="${colonne.id}"></div>
     `;
-  
+    colonneElement.querySelector('.entete-colonne').style.backgroundColor = colonne.couleur;
+    colonneElement.querySelector('.titre-statut-libelle').textContent = colonne.libelle;
     return colonneElement;
   }
   
@@ -240,133 +266,178 @@ let READ_ONLY = false;
       carteCliquee.classList.add('active');
     }
     
-    popup.style = `border-left-color: ${infoColonne? infoColonne.couleur: '#009058'}`;
-
+    popup.style.borderLeftColor = infoColonne ? infoColonne.couleur : '#009058';
     popup.dataset.statut = todo[COLONNES_MAP.STATUT];
     popup.dataset.isdone = infoColonne? false : infoColonne.isdone;
     popup.dataset.currentTodo = todo.id;
     
     const popupTitle = popup.querySelector('.popup-title');
     const content = popup.querySelector('.popup-content');
+    content.innerHTML = '';
     const popupheader = popup.querySelector('.popup-header');
-    popupheader.style = `background-color: ${infoColonne? infoColonne.couleur: '#009058'}`;
-    
+    popupheader.style.backgroundColor = infoColonne? infoColonne.couleur: '#009058';
     popupTitle.textContent = todo[COLONNES_MAP.DESCRIPTION] || 'Nouvelle tâche';
-    
-    let form = '<div class="field-row">';
-    if (REF_PROJET?.length > 0) {
-      form += `
-          <div class="field">
-            <label class="field-label">Référence Projet</label>
-            <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.REFERENCE_PROJET}', this.value, event)">`;
-      REF_PROJET.forEach(element => {
-        form += `<option value="${element}" ${todo[COLONNES_MAP.REFERENCE_PROJET] === element ? 'selected' : ''}>${element}</option>`;  
-      });
-      form += `</select>
-          </div>        
-      `;
-    } else {
-      form += `
-          <div class="field">
-            <label class="field-label">Référence Projet</label>
-            <input type="text" class="field-input" value="${todo[COLONNES_MAP.REFERENCE_PROJET] || ''}" 
-                  onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.REFERENCE_PROJET}', this.value, event)">
-          </div>
-        `;
-    }  
 
-    form += `
-        <div class="field">
-          <label class="field-label">Date limite</label>
-          <input type="date" class="field-input" 
-                 value="${formatDateForInput(todo[COLONNES_MAP.DEADLINE])}"
-                 onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.DEADLINE}', this.value, event)">
-        </div>
+    const metadataRow1 = document.createElement('div');
+    metadataRow1.className = 'field-row';
+    if (REF_PROJET?.length > 0) {
+      const field = document.createElement('div');
+      field.className = 'field';
+      field.innerHTML = `
+          <div class="field">
+            <label class="field-label">Référence Projet</label>
+            <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.REFERENCE_PROJET}', this.value, event)"></select>
+          </div>
+      `;
+      REF_PROJET.forEach(element => {
+        const option = document.createElement('option');
+        option.value = element;
+        option.textContent = element;
+        option.selected = todo[COLONNES_MAP.REFERENCE_PROJET] === element;
+        field.querySelector('.field-select').appendChild(option);
+      });
+      metadataRow1.appendChild(field);
+    } else {
+      const field = document.createElement('div');
+      field.className = 'field';
+      field.innerHTML = `
+          <div class="field">
+            <label class="field-label">Référence Projet</label>
+            <input type="text" class="field-input" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.REFERENCE_PROJET}', this.value, event)">
+          </div>
+      `;
+      field.querySelector('.field-input').value = todo[COLONNES_MAP.REFERENCE_PROJET] || '';
+      metadataRow1.appendChild(field);
+    }
+    const dateField = document.createElement('div');
+    dateField.className = 'field';
+    dateField.innerHTML = `
+      <div class="field">
+        <label class="field-label">Date limite</label>
+        <input type="date" class="field-input"
+               onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.DEADLINE}', this.value, event)"
+        >
       </div>
-  
-      <div class="field-row">
     `;
-    
+    dateField.querySelector('.field-input').value = formatDateForInput(todo[COLONNES_MAP.DEADLINE]) || '';
+    metadataRow1.appendChild(dateField);
+    content.appendChild(metadataRow1);
+
+    const metadataRow2 = document.createElement('div');
+    metadataRow2.className = 'field-row';
     if (COLONNES_MAP.TYPE) {
       if (TYPES?.length > 0) {
-        form += `
+        const field = document.createElement('div');
+        field.className = 'field';
+        field.innerHTML = `
             <div class="field">
               <label class="field-label">Type</label>
-              <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.TYPE}', this.value, event)">`;
-        TYPES.forEach(element => {
-          form += `<option value="${element}" ${todo[COLONNES_MAP.TYPE] === element ? 'selected' : ''}>${element}</option>`;  
-        });
-        form += `</select>
-            </div>        
-        `;
-      } else {
-        form += `
-            <div class="field">
-              <label class="field-label">Type</label>
-              <input type="text" class="field-input" value="${todo[COLONNES_MAP.TYPE] || ''}" 
-                    onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.TYPE}', this.value, event)">
+              <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.TYPE}', this.value, event)"></select>
             </div>
         `;
-      }      
+        TYPES.forEach(element => {
+          const option = document.createElement('option');
+          option.value = element;
+          option.textContent = element;
+          option.selected = todo[COLONNES_MAP.TYPE] === element;
+          field.querySelector('.field-select').appendChild(option);
+        });
+        metadataRow2.appendChild(field);
+      } else {
+        const field = document.createElement('div');
+        field.className = 'field';
+        field.innerHTML = `
+            <div class="field">
+              <label class="field-label">Type</label>
+              <input type="text" class="field-input"
+                    onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.TYPE}', this.value, event)">
+            </div>
+          `;
+        field.querySelector('.field-input').value = todo[COLONNES_MAP.TYPE] || '';
+        metadataRow2.appendChild(field);
+      }
     }
     if (COLONNES_MAP.RESPONSABLE) {
       if (PERSONNES?.length > 0) {
-        form += `
+        const field = document.createElement('div');
+        field.className = 'field';
+        field.innerHTML = `
             <div class="field">
               <label class="field-label">Responsable</label>
               <select class="field-select" onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.RESPONSABLE}', this.value, event)">`;
         PERSONNES.forEach(element => {
-          form += `<option value="${element}" ${todo[COLONNES_MAP.RESPONSABLE] === element ? 'selected' : ''}>${element}</option>`;  
+          const option = document.createElement('option');
+          option.value = element;
+          option.textContent = element;
+          option.selected = todo[COLONNES_MAP.RESPONSABLE] === element;
+          field.querySelector('.field-select').appendChild(option);
         });
-        form += `</select>
-            </div>        
-        `;
+        metadataRow2.appendChild(field);
       } else {
-        form += `
+        const field = document.createElement('div');
+        field.className = 'field';
+        field.innerHTML = `
             <div class="field">
               <label class="field-label">Responsable</label>
-              <input type="text" class="field-input" value="${todo[COLONNES_MAP.RESPONSABLE] || ''}" 
-                    onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.RESPONSABLE}', this.value, event)">
+              <input type="text" class="field-input"
+                    onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.RESPONSABLE}', this.value, event)"
+              >
             </div>
         `;
-      }      
+        field.querySelector('.field-input').value = todo[COLONNES_MAP.RESPONSABLE] || '';
+        metadataRow2.appendChild(field);
+      }
     }
-    form += `
-      </div>
+    content.appendChild(metadataRow2);
+
+    const descriptionField = document.createElement('div');
+    descriptionField.className = 'field';
+    descriptionField.innerHTML = `
       <div class="field">
         <label class="field-label">Description</label>
-        <textarea class="field-textarea auto-expand" 
-                  onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.DESCRIPTION}', this.value, event)"
-                  oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'">${todo[COLONNES_MAP.DESCRIPTION] || ''}</textarea>
+        <textarea
+            class="field-textarea auto-expand"
+            onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.DESCRIPTION}', this.value, event)"
+            oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"
+        ></textarea>
       </div>
     `;
+    descriptionField.querySelector('.field-textarea').value = todo[COLONNES_MAP.DESCRIPTION] || '';
+    content.appendChild(descriptionField);
+
     if (COLONNES_MAP.NOTES) {
-      form += `  
+      const field = document.createElement('div');
+      field.className = 'field';
+      field.innerHTML = `
         <div class="field">
           <label class="field-label">Notes</label>
-          <textarea class="field-textarea auto-expand" 
+          <textarea class="field-textarea auto-expand"
                     onchange="mettreAJourChamp(${todo.id}, '${COLONNES_MAP.NOTES}', this.value, event)"
-                    oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'">${todo[COLONNES_MAP.NOTES] || ''}</textarea>
+                    oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"></textarea>
         </div>
       `;
+      field.querySelector('.field-textarea').value = todo[COLONNES_MAP.NOTES] || '';
+      content.appendChild(field);
     }
+
     if (COLONNES_MAP.CREE_LE || COLONNES_MAP.CREE_PAR) {
-      form += ` 
-        <div class="info-creation">
+      const field = document.createElement('div');
+      field.className = 'info-creation';
+      field.textContent = `
           Créé ${COLONNES_MAP.CREE_LE ? 'le ' + formatDate(todo[COLONNES_MAP.CREE_LE]): ''} ${COLONNES_MAP.CREE_PAR ? 'par ' + (todo[COLONNES_MAP.CREE_PAR] || '-'):''}
-        </div>
       `;
-    }    
+      content.appendChild(field);
+    }
 
     if (!READ_ONLY) {
-      form += ` 
-        <div class="popup-actions">
-          <button class="popup-action-button bouton-supprimer" onclick="supprimerTodo(${todo.id}, event)" 
+      const field = document.createElement('div');
+      field.className = 'popup-actions';
+      field.innerHTML = `
+          <button class="popup-action-button bouton-supprimer" onclick="supprimerTodo(${todo.id}, event)"
                   title="Supprimer la tâche">🗑️</button>
-        </div>
       `;
+      content.appendChild(field);
     }
-    content.innerHTML = form;
 
     // Initialisation des champs auto-expandables
     setTimeout(() => {
@@ -433,6 +504,7 @@ let READ_ONLY = false;
     
     // Création des colonnes
     COLONNES_AFFICHAGE.forEach(colonneConfig => {
+      colonneConfig.id = escapeHtml(colonneConfig.id);
       const colonne = creerColonneKanban(colonneConfig);
       conteneurKanban.appendChild(colonne);
     });
